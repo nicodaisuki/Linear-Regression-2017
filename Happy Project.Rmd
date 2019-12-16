@@ -1,0 +1,262 @@
+---
+title: "225 Happy Project"
+author: "Kalvin Goode"
+date: "2019/11/8"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+#library(rpart)
+#library(ggplot2)
+#library(reshape2)
+library(dplyr)
+#library(class)
+#library(tree)
+library(broom)
+happiness=read.csv("D:/downloads/temp/ECE 225/Happy.csv") %>% as.tbl %>%select(-X)
+#happiness=read.csv("D:/downloads/temp/ECE 225/happiness.csv") %>% as.tbl
+
+#library(countrycode)
+#happiness=left_join(happiness,codelist[c("country.name.en","continent")],by=c("Country.name"="country.name.en"))
+
+#happiness=happiness%>%
+#  dplyr::rename(Happy=Life.Ladder,GDP=Log.GDP.per.capita,
+#               Social=Social.support,Freedom=Freedom.to.make.life.choices,
+#                Corruption=Perceptions.of.corruption,
+#                Democracy=Democratic.Quality,Positive=Positive.affect,
+#                Negative=Negative.affect,
+#                Continent=continent,
+#                Country=Country.name)%>%
+#  select("Year","Happy","GDP","Social","Freedom",
+#         "Corruption","Democracy","Positive","Negative","Country","Continent")
+#happiness=happiness%>% na.omit()
+#happiness=happiness%>%group_by(Country)%>%summarize_all(,mean)
+#summary(happiness)
+#write.csv(happiness,file="Happy.csv")
+
+attach(happiness)
+```
+
+
+```{r}
+summary(happiness)
+```
+
+
+
+```{r}
+model1=lm(Happy~GDP+Social+Freedom+Corruption+Positive+Democracy+Negative, data=happiness)
+summary(model1)
+```
+
+```{r}
+model2=lm(Happy~GDP+Social+Freedom+Corruption+Positive, data=happiness)
+summary(model2)
+```
+
+```{r}
+anova(model2)
+```
+
+```{r,warning=FALSE}
+#temp=na.omit(happiness)
+temp=happiness%>%select(.,-c("Continent","Country","Year","Negative","Democracy"))
+
+null=lm(Happy~1,data=temp)
+full=lm(Happy~., data=temp)
+
+step(null,scope=list(lower=null,upper=full), direction="forward")
+step(full, direction="backward")
+```
+
+```{r}
+temp=happiness%>%group_by(Country)%>%summarize_all(.,mean)
+pairs(temp[3:6])
+```
+
+```{r}
+pairs(temp[c(3,7:10)])
+```
+
+```{r}
+plot(fitted(model1),residuals(model1),xlab="Predicted
+Score",ylab="Residual",main="Residuals Plot")
+abline(h=0)
+qqnorm(residuals(model2))
+qqline(residuals(model2))
+hist(residuals(model2))
+```
+
+#predicting 2019
+```{r}
+#replace na with mean by country
+happiness_update=summarize_at(happiness,c(2:9),funs(mean(.,na.rm=TRUE)))
+for (r in 1:nrow(happiness))
+{
+  for(co in 2:(ncol(happiness)-2))
+  {
+    if(is.na(happiness[r,co])[1,1])
+    {
+      happiness[r,co]=happiness_update%>%filter(Country==happiness$Country[r])%>%select(c(co))  
+    }
+  }
+}
+```
+
+
+
+
+```{r,warning=FALSE}
+countries=happiness%>%select(Country,Continent)%>%unique()
+continents=happiness%>%select(Country,Continent)%>%unique()
+features=list("GDP","Social","Freedom","Corruption","Democracy","Positive","Negative")
+init=TRUE
+a=happiness
+n=nrow(a)+1
+for(yr in 2019:2020)
+{
+  for(c in 1:dim(countries)[1])
+  {
+    for(f in features)
+    {
+      if(init)
+      {
+        a[n,"Year"]=yr
+        a[n,"Country"]=countries$Country[c]
+        temp=continents%>%filter(Country==countries$Country[c])
+        a[n,"Continent"]=temp$Continent
+        init=FALSE
+      }
+      b=happiness%>%filter(Country==countries$Country[c])%>%lm(get(f)~Year,data=.)%>%predict(.,data.frame(Year=yr),interval="none")
+      a[n,f[[1]]]=b[[1]]
+    }
+    b=happiness%>%filter(Country==countries$Country[c])%>%
+                lm(Happy~GDP+Social+Freedom+Positive,data=.)%>%
+                predict(.,data.frame(GDP=a$GDP[n],Social=a$Social[n],
+                   Freedom=a$Freedom[n],Positive=a$Positive[n]),interval="none")
+    a$Happy[n]=b[[1]]
+    init=TRUE
+    n=n+1
+  }
+}
+```
+
+```{r}
+model_gdp=lm(GDP~Year, data=happiness)
+model_soc=lm(Social~I(Year),data=happiness)
+model_fre=lm(Freedom~I(Year),data=happiness)
+model_cor=lm(Corruption~I(Year),data=happiness)
+model_pos=lm(Positive~I(Year),data=happiness)
+```
+
+```{r}
+ggplot(data=happiness, aes(x=GDP,y=Happy,colour=Continent))+xlab("GDP")+geom_point(size=2)+
+  stat_smooth(method = 'lm',fullrange=TRUE) 
+```
+
+```{r}
+ggplot(data=a, aes(x=Year,y=Happy,colour=Continent))+xlab("Year")+geom_point(size=2)+stat_smooth(method = 'lm',fullrange=TRUE) 
+```
+
+
+```{r}
+#ggplot(happy_country_augment, aes(Year, GDP)) +geom_line(aes(group = Country), alpha = 1 / 3) + geom_smooth(se = FALSE)
+```
+
+
+```{r}
+#happy_country=happiness%>%select(-Continent)%>%dplyr::group_by(Country)%>%
+#        lm(GDP~Year,data=.)%>%tidy(.)%>%do(.)
+#happiness%>%select(-Continent)%>%dplyr::group_by(Country)%>%
+#        do(tidy(lm(GDP~Year,data=.))) %>%predict(.,data.frame(Year=2019),interval="prediction",level=0.95)
+```
+
+
+```{r}
+#happiness %>%
+#  nest(-Country) %>% 
+#  mutate(
+#    fit1 = map(data, ~ lm(GDP~ Year, data = .x)),  # S3 list-col
+#    
+#    tidied = map(fit1, tidy)
+#  ) %>% 
+#  unnest(tidied)
+
+#happiness %>%
+#  nest(-Country) %>% 
+#  mutate(
+#    fit2 = map(data, ~ lm(Social~ Year, data = .x)),  # S3 list-col
+#    
+#    tidied = map(fit2, tidy)
+#  ) %>% 
+#  unnest(tidied)
+
+```
+
+```{r}
+#pos_19=
+#happiness%>%group_by(Country)%>%do(augment(lm(Positive~Year,data=.)))
+
+
+#%>%ungroup%>%slice(1:2)%>%
+#  predict(.,data.frame(Year=2019),interval="none")
+#pos_19
+```
+
+```{r}
+
+#gdp_19=happiness%>%filter(Country=="Afghanistan")%>%lm(GDP~Year,data=.)%>%predict(.,data.frame(Year=2019),interval="none")  
+                                                  
+
+#soc_19=happiness%>%lm(Social~Year,data=.) %>%predict(.,data.frame(Year=2019),interval="none")
+#fre_19=happiness%>%lm(Freedom~Year,data=.) %>%predict(.,data.frame(Year=2019),interval="none")
+#cor_19=happiness%>%lm(Corruption~Year,data=.) %>%predict(.,data.frame(Year=2019),interval="none")
+#dem_19=happiness%>%lm(Democracy~Year,data=.) %>%predict(.,data.frame(Year=2019),interval="none")
+#pos_19=happiness%>%lm(Positive~Year,data=.) %>%predict(.,data.frame(Year=2019),interval="none")
+#model_19=lm(Happy~GDP+Positive+Corruption+Social,data=happiness)
+
+#hap_19=predict(model_19,data.frame(
+#                      GDP=gdp_19,Positive=pos_19,Corruption=cor_19,Social=soc_19),
+#                      interval="none")
+#hap_19
+```
+
+```{r}
+#model1=lm(Happy~Democracy, data=happiness)
+
+#plot(Democracy[Continent=="Africa"],Happy[Continent=="Africa"],col="red",pch=19,xlab="Entrance Score",ylab="GPA")
+#points(Democracy[Continent=="Europe"],Happy[Continent=="Europe"],col="blue",pch=19)
+#abline(lm(Happy[Continent=="Africa"]~Democracy[Continent=="Africa"]),col="red")
+#abline(lm(Happy[Continent=="Europe"]~Democracy[Continent=="Europe"]),col="blue")
+#abline(model1,col="black")
+```
+
+
+```{r}
+#model1=lm(Happy~GDP, data=happiness)
+
+#plot(GDP[Year==2010],Happy[Year==2010],col="red",pch=19,xlab="Happy",ylab="GPA")
+#points(GDP[Year==2017],Happy[Year==2017],col="blue",pch=19)
+#legend(x=10.3,y=4.5,legend=c("Year 2010","Year 2017"),fill=c("red","blue"))
+#abline(lm(Happy[Year==2010]~GDP[Year==2010]),col="red")
+#abline(lm(Happy[Year==2017]~GDP[Year==2017]),col="blue")
+#abline(model1,col="black")
+
+```
+
+```{r,warning=FALSE}
+#happy_country=happiness%>%select(-Continent)%>%dplyr::group_by(Country)%>%
+#        do(glance(lm(GDP~Year,data=.)))
+
+#happy_country=happiness%>%select(-Continent)%>%dplyr::group_by(Country)%>%
+#        do(tidy(lm(GDP~Year,data=.)))                      
+#happy_country=group_by(happiness,Country)
+#do(happy_country,glance(lm(GDP~Year,data=.)))
+
+#happy_country_augment=happiness%>%select(-Continent)%>%dplyr::group_by(Country)%>%
+#        do(augment(lm(GDP~Year,data=.)))
+```
